@@ -12,6 +12,7 @@
     "license": "ISC",
     "devDependencies": {
         "@types/jest": "^27.0.2",
+        "fast-check": "^2.20.0",
         "jest": "^27.3.1",
         "ts-jest": "^27.0.7",
         "ts-node": "^10.3.1",
