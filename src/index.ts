@@ -14,6 +14,7 @@ import {
     initTail,
 } from './utils';
 import { Codec, AnyDecoder } from './codecs';
+import { Messages, messages as defaultMessages } from './messages';
 
 export type ErrorFirstContextInfo = {
     key: string;
@@ -25,42 +26,44 @@ export type ErrorFirstContextInfo = {
 };
 export type ErrorsExt = t.ValidationError & ErrorFirstContextInfo;
 export type InputError = t.ValidationError & Partial<ErrorFirstContextInfo>;
-export type Options = Partial<{ path: string[]; parentType: AnyDecoder | null }>;
+export type Options = { path: string[]; parentType: AnyDecoder | null; messages: Messages };
+export { Messages, defaultMessages };
 
-export const messages = {
-    path: (path: string[]) => path.join('.'),
-
-    missing: (key: string, path: string[]) =>
-        `missing property '${key}' at '${messages.path(path)}'`,
-
-    mismatch: (key: string, path: string[], actual: unknown, expected: AnyDecoder) =>
-        `got '${actual}' expected '${expected.name}' at '${messages.path([...path, key])}'`,
-
-    custom: (msg: string, path: string[]) => `${msg} at '${messages.path(path)}'`,
+const Options = {
+    default: (): Options => ({ path: [], parentType: null, messages: defaultMessages }),
 };
 
-export function report(validation: t.Validation<unknown>): string | null {
-    return isLeft(validation) ? explain(validation.left) : null;
-}
-
-export function reportAll(validation: t.Validation<unknown>): string[] {
-    return isLeft(validation) ? explainAll(validation.left) : [];
-}
-
-function explain(
-    errors: Array<InputError>,
-    { path = [], parentType = null }: Options = {},
+/**
+ * Returns description of first validation error or null
+ */
+export function report(
+    validation: t.Validation<unknown>,
+    opts: Partial<Options> = {},
 ): string | null {
+    return isLeft(validation) ? explain(validation.left, { ...Options.default(), ...opts }) : null;
+}
+
+/**
+ * Returns descriptions of all validation errors found
+ */
+export function reportAll(
+    validation: t.Validation<unknown>,
+    opts: Partial<Options> = {},
+): string[] {
+    return isLeft(validation) ? explainAll(validation.left, { ...Options.default(), ...opts }) : [];
+}
+
+function explain(errors: Array<InputError>, opts: Options): string | null {
     const errorsOnLevelsBelow = errors.map(attachExtraInfoToError).filter(isNotNullable);
     const errorsByPath = groupBy(errorsOnLevelsBelow, ({ key }) => key);
 
     const errorToReport =
-        head(detectTypeMismatches(parentType, path, errorsByPath)) ||
-        head(detectMissingProperties(path, errorsOnLevelsBelow));
+        head(detectTypeMismatches(errorsByPath, opts)) ||
+        head(detectMissingProperties(errorsOnLevelsBelow, opts));
 
     if (errorToReport) return errorToReport;
 
-    const branch = head(filterBranches(parentType, errorsByPath));
+    const branch = head(filterBranches(opts.parentType, errorsByPath));
 
     if (!branch) return null;
 
@@ -70,24 +73,22 @@ function explain(
     if (!firstError) return null;
 
     return explain(branchSubErrors, {
-        path: shouldExtendPath(branchKey, path, parentType) ? [...path, branchKey] : path,
+        ...opts,
+        path: extendPath(branchKey, opts),
         parentType: firstError.type,
     });
 }
 
-function explainAll(
-    errors: Array<InputError>,
-    { path = [], parentType = null }: Options = {},
-): string[] {
+function explainAll(errors: Array<InputError>, opts: Options): string[] {
     const errorsOnLevelsBelow = errors.map(attachExtraInfoToError).filter(isNotNullable);
     const errorsByPath = groupBy(errorsOnLevelsBelow, ({ key }) => key);
 
     const errorsToReport = dedupe([
-        ...detectTypeMismatches(parentType, path, errorsByPath),
-        ...detectMissingProperties(path, errorsOnLevelsBelow),
+        ...detectTypeMismatches(errorsByPath, opts),
+        ...detectMissingProperties(errorsOnLevelsBelow, opts),
     ]);
 
-    const branches = filterBranches(parentType, errorsByPath);
+    const branches = filterBranches(opts.parentType, errorsByPath);
 
     const subReports = branches.flatMap(([branchKey, branchSubErrors]) => {
         const firstError = head(branchSubErrors);
@@ -95,7 +96,8 @@ function explainAll(
         if (!firstError) return [];
 
         return explainAll(branchSubErrors, {
-            path: shouldExtendPath(branchKey, path, parentType) ? [...path, branchKey] : path,
+            ...opts,
+            path: extendPath(branchKey, opts),
             parentType: firstError.type,
         });
     });
@@ -104,9 +106,8 @@ function explainAll(
 }
 
 function detectTypeMismatches(
-    parentType: AnyDecoder | null,
-    path: string[],
     currentErrorContextsRecord: Record<string, Array<ErrorsExt>>,
+    { path, parentType, messages }: Options,
 ): string[] {
     return Object.values(currentErrorContextsRecord).flatMap(currentErrorContexts => {
         const allExhausted = currentErrorContexts.every(({ isExhausted }) => isExhausted);
@@ -148,23 +149,36 @@ function detectTypeMismatches(
     });
 }
 
-function detectMissingProperties(path: string[], currentErrorContexts: Array<ErrorsExt>): string[] {
-    return filterMap(
+function detectMissingProperties(
+    currentErrorContexts: Array<ErrorsExt>,
+    { path, messages }: Options,
+): string[] {
+    const missingFields = filterMap(
         currentErrorContexts,
-        ({ key, actual, message, wasParentExhausted }) => {
-            if (actual !== undefined) return null;
-
-            // we only report as long as the missing key was not already reported
-            if (wasParentExhausted) return null;
-
-            return message !== undefined
-                ? messages.custom(message, path)
-                : messages.missing(key, path);
-        },
-        isNotFalsy,
+        getMissingPropertyFromErrorContext,
+        isNotNullable,
     );
+    const uniqMissingFields = dedupe(missingFields);
+
+    return uniqMissingFields.length ? [messages.missing(uniqMissingFields, path)] : [];
 }
 
+function getMissingPropertyFromErrorContext({
+    key,
+    actual,
+    wasParentExhausted,
+}: ErrorsExt): string | null {
+    if (actual !== undefined) return null;
+
+    // we only report as long as the missing key was not already reported
+    if (wasParentExhausted) return null;
+
+    return key;
+}
+
+/**
+ * Extends io-ts t.ValidationError with metadata obtained from `context`
+ */
 function attachExtraInfoToError({ context, ...rest }: InputError): ErrorsExt | null {
     const [head, ...tail] = context;
     if (!head) return null;
@@ -184,20 +198,23 @@ function attachExtraInfoToError({ context, ...rest }: InputError): ErrorsExt | n
     };
 }
 
-function shouldExtendPath(
-    branchKey: string,
-    path: string[],
-    parentType: AnyDecoder | null,
-): boolean {
+function extendPath(branchKey: string, { path, parentType }: Options): string[] {
     const isRoot = !path.length && !branchKey;
+    const shouldExtendPath =
+        !Codec.is.union(parentType) && !Codec.is.intersection(parentType) && !isRoot;
 
-    return !Codec.is.union(parentType) && !Codec.is.intersection(parentType) && !isRoot;
+    return shouldExtendPath ? [...path, branchKey] : path;
 }
 
 function maxLevelsUntilExhaustion(errors: Array<ErrorsExt>): number {
     return Math.max(...errors.map(({ levelsUntilExhaustion }) => levelsUntilExhaustion));
 }
 
+/**
+ * Returns array of errors which happend under specific sub branch.
+ * In case of union types, tries to guess the most plausible variant
+ * and returns its errors for further analysis
+ */
 function filterBranches(
     parentType: AnyDecoder | null,
     branchRecord: Record<string, Array<ErrorsExt>>,
