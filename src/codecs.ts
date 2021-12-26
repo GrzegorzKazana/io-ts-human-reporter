@@ -1,6 +1,6 @@
 import * as t from 'io-ts';
 
-import { hasKey } from './utils';
+import { hasKey, isNotNullable } from './utils';
 
 export type AnyDecoder = t.Decoder<any, any>;
 
@@ -17,7 +17,7 @@ export const Codec = {
     /**
      * Adapted from https://github.com/gcanti/io-ts/blob/87f6b860001eb4b487429b0547cfa9a4efca33b4/src/index.ts#L515
      */
-    getProps: (codec: AnyDecoder): Record<string, AnyDecoder> | null => {
+    getProps: (codec: AnyDecoder): Record<string, t.Mixed> | null => {
         if (!Codec.is.tagged(codec)) return null;
 
         switch (codec._tag) {
@@ -30,14 +30,49 @@ export const Codec = {
             case 'PartialType':
                 return codec.props;
 
-            case 'IntersectionType':
-                return codec.types.reduce(
-                    (props: Record<string, AnyDecoder>, type: AnyDecoder) =>
-                        Object.assign(props, Codec.getProps(type)),
-                    {},
-                );
+            case 'IntersectionType': {
+                const types: Array<Record<string, t.Mixed>> = codec.types
+                    .map(Codec.getProps)
+                    .filter(isNotNullable);
+
+                return types.length ? Object.assign({}, ...types) : null;
+            }
             case 'RecursiveType':
                 return Codec.getProps(codec.runDefinition());
+
+            default:
+                return null;
+        }
+    },
+
+    getArrayItemType: (codec: AnyDecoder): t.Mixed | null => {
+        if (!Codec.is.tagged(codec)) return null;
+
+        switch (codec._tag) {
+            case 'ArrayType':
+            case 'ReadonlyArrayType':
+                return codec.type;
+
+            case 'AnyArrayType':
+                return t.unknown;
+
+            case 'RecursiveType':
+                return Codec.getArrayItemType(codec.runDefinition());
+
+            default:
+                return null;
+        }
+    },
+
+    getTupleTypes: (codec: AnyDecoder): t.Mixed[] | null => {
+        if (!Codec.is.tagged(codec)) return null;
+
+        switch (codec._tag) {
+            case 'TupleType':
+                return codec.types;
+
+            case 'RecursiveType':
+                return Codec.getTupleTypes(codec.runDefinition());
 
             default:
                 return null;

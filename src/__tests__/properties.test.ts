@@ -2,7 +2,7 @@ import * as fc from 'fast-check';
 import * as t from 'io-ts';
 import { isRight } from 'fp-ts/Either';
 
-import { report } from '../index';
+import { report, reportAll } from '../index';
 import { isNotEmpty } from '../utils';
 
 /**
@@ -71,23 +71,26 @@ describe('error formatting properties', () => {
     it('should always return an error message if validation fails', () => {
         fc.assert(
             fc.property(
-                fc.oneof(
-                    jsonCodecArbitrary.primitive,
-                    jsonCodecArbitrary.object,
-                    jsonCodecArbitrary.array,
-                    jsonCodecArbitrary.algebraic,
-                ),
+                fc
+                    .oneof(
+                        jsonCodecArbitrary.primitive,
+                        jsonCodecArbitrary.object,
+                        jsonCodecArbitrary.array,
+                        jsonCodecArbitrary.algebraic,
+                    )
+                    .map(value => Object.assign(value, { [fc.toStringMethod]: () => value.name })),
                 fc.anything({ key: stringSubsetArbitrary, maxDepth: 3 }),
                 (codec, value) => {
                     const result = codec.decode(value);
                     if (isRight(result)) return true;
 
                     const message = report(result);
+                    const messages = reportAll(result);
 
-                    return !!message;
+                    return !!message && !!messages.length;
                 },
             ),
-            { numRuns: 1000 },
+            { numRuns: 10000 },
         );
     });
 });
