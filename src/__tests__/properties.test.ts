@@ -2,7 +2,7 @@ import * as fc from 'fast-check';
 import * as t from 'io-ts';
 import { isRight } from 'fp-ts/Either';
 
-import { report, reportAll } from '../index';
+import { report, reportOne } from '../index';
 import { isNotEmpty } from '../utils';
 
 /**
@@ -84,8 +84,8 @@ describe('error formatting properties', () => {
                     const result = codec.decode(value);
                     if (isRight(result)) return true;
 
-                    const message = report(result);
-                    const messages = reportAll(result);
+                    const message = reportOne(result);
+                    const messages = report(result);
 
                     return !!message && !!messages.length;
                 },

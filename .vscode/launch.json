@@ -4,7 +4,7 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Tests in shared",
+            "name": "Tests",
             "program": "${workspaceFolder}/node_modules/jest/bin/jest",
             "args": [
                 "--runInBand",

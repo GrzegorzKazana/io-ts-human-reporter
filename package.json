@@ -1,25 +1,49 @@
 {
-    "name": "io-ts-friendly-reporter",
-    "version": "1.0.0",
-    "description": "",
-    "main": "index.js",
-    "scripts": {
-        "test": "jest",
-        "test:watch": "jest --watch"
+    "name": "io-ts-human-reporter",
+    "version": "0.1.0",
+    "author": "kazana.grzegorz@gmail.com",
+    "license": "MIT",
+    "description": "Understandable io-ts error reports.",
+    "keywords": [
+        "io-ts",
+        "fp-ts",
+        "error",
+        "reporter",
+        "human",
+        "union",
+        "translation",
+        "i18n"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/GrzegorzKazana/io-ts-human-reporter"
     },
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
+    "main": "dist/cjs/index.js",
+    "module": "dist/esm/index.js",
+    "types": "dist/types/index.d.ts",
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "dev": "tsc --watch",
+        "build": "tsc && tsc -p tsconfig.cjs.json",
+        "test": "jest",
+        "test:watch": "jest --watch",
+        "prepublishOnly": "npm run build"
+    },
     "devDependencies": {
         "@types/jest": "^27.0.2",
         "fast-check": "^2.20.0",
+        "fp-ts": "^2.11.5",
+        "io-ts": "^2.2.16",
         "jest": "^27.3.1",
         "ts-jest": "^27.0.7",
         "ts-node": "^10.3.1",
         "typescript": "^4.4.4"
     },
-    "dependencies": {
-        "fp-ts": "^2.11.5",
-        "io-ts": "^2.2.16"
+    "dependencies": {},
+    "peerDependencies": {
+        "fp-ts": "2.x",
+        "io-ts": "2.x"
     }
 }
