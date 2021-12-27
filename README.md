@@ -1,4 +1,4 @@
-# io-ts-humman-reporter
+# io-ts-human-reporter
 
 Customizable and _smart_ io-ts error reporting.
 
