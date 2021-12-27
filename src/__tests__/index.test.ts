@@ -1,6 +1,6 @@
 import * as t from 'io-ts';
 
-import { report, reportAll, defaultMessages as msg } from '..';
+import { reportOne, report, defaultMessages as msg } from '..';
 
 describe('io-ts-friendly-reporter', () => {
     it('should correctly report errors at root level', () => {
@@ -24,8 +24,8 @@ describe('io-ts-friendly-reporter', () => {
             t.number.encode,
         );
 
-        expect(report(custom.decode({}))).toEqual(msg.custom(message, []));
-        expect(report(t.type({ a: t.type({ b: custom }) }).decode({ a: {} }))).toEqual(
+        expect(reportOne(custom.decode({}))).toEqual(msg.custom(message, []));
+        expect(reportOne(t.type({ a: t.type({ b: custom }) }).decode({ a: {} }))).toEqual(
             msg.missing(['b'], ['a']),
         );
     });
@@ -33,18 +33,20 @@ describe('io-ts-friendly-reporter', () => {
     describe('grouping of missing properties', () => {
         it('should group missing fields at the same level', () => {
             expect(
-                report(t.type({ a: t.number, b: t.number, c: t.number }).decode({ b: 42 })),
+                reportOne(t.type({ a: t.number, b: t.number, c: t.number }).decode({ b: 42 })),
             ).toEqual(msg.missing(['a', 'c'], []));
             expect(
-                reportAll(t.type({ a: t.number, b: t.number, c: t.number }).decode({ b: 42 })),
+                report(t.type({ a: t.number, b: t.number, c: t.number }).decode({ b: 42 })),
             ).toEqual([msg.missing(['a', 'c'], [])]);
         });
 
         it('should not group missing fields across array or tuple items', () => {
             const codec = t.array(t.type({ a: t.number, b: t.number }));
 
-            expect(report(codec.decode([{ a: 42 }, { b: 42 }]))).toEqual(msg.missing(['b'], ['0']));
-            expect(reportAll(codec.decode([{ a: 42 }, { b: 42 }]))).toEqual([
+            expect(reportOne(codec.decode([{ a: 42 }, { b: 42 }]))).toEqual(
+                msg.missing(['b'], ['0']),
+            );
+            expect(report(codec.decode([{ a: 42 }, { b: 42 }]))).toEqual([
                 msg.missing(['b'], ['0']),
                 msg.missing(['a'], ['1']),
             ]);
@@ -56,8 +58,10 @@ describe('io-ts-friendly-reporter', () => {
                 t.type({ b: t.number, c: t.number }),
             ]);
 
-            expect(report(codec.decode([{ b: 42 }, { b: 42 }]))).toEqual(msg.missing(['a'], ['0']));
-            expect(reportAll(codec.decode([{ b: 42 }, { b: 42 }]))).toEqual([
+            expect(reportOne(codec.decode([{ b: 42 }, { b: 42 }]))).toEqual(
+                msg.missing(['a'], ['0']),
+            );
+            expect(report(codec.decode([{ b: 42 }, { b: 42 }]))).toEqual([
                 msg.missing(['a'], ['0']),
                 msg.missing(['c'], ['1']),
             ]);
@@ -69,8 +73,8 @@ describe('io-ts-friendly-reporter', () => {
                 t.type({ c: t.number, d: t.number }),
             ]);
 
-            expect(report(codec.decode({ a: 42 }))).toEqual(msg.missing(['b', 'c'], []));
-            expect(reportAll(codec.decode({ a: 42 }))).toEqual([msg.missing(['b', 'c'], [])]);
+            expect(reportOne(codec.decode({ a: 42 }))).toEqual(msg.missing(['b', 'c'], []));
+            expect(report(codec.decode({ a: 42 }))).toEqual([msg.missing(['b', 'c'], [])]);
         });
 
         it('should not group missing properties on intersection components', () => {
@@ -79,8 +83,8 @@ describe('io-ts-friendly-reporter', () => {
                 t.type({ d: t.number }),
             ]);
 
-            expect(report(codec.decode({ a: 42 }))).toEqual(msg.missing(['b', 'c'], []));
-            expect(reportAll(codec.decode({ a: 42 }))).toEqual([
+            expect(reportOne(codec.decode({ a: 42 }))).toEqual(msg.missing(['b', 'c'], []));
+            expect(report(codec.decode({ a: 42 }))).toEqual([
                 msg.missing(['b', 'c'], []),
                 msg.missing(['d'], []),
             ]);
@@ -93,38 +97,38 @@ describe('io-ts-friendly-reporter', () => {
         const unionInObj = t.type({ a: rootUnion });
 
         it('should not narrow down if property is missing', () => {
-            expect(report(primitiveUnion.decode(undefined))).toEqual(msg.missing([''], []));
-            expect(reportAll(primitiveUnion.decode(undefined))).toEqual([msg.missing([''], [])]);
+            expect(reportOne(primitiveUnion.decode(undefined))).toEqual(msg.missing([''], []));
+            expect(report(primitiveUnion.decode(undefined))).toEqual([msg.missing([''], [])]);
 
-            expect(report(rootUnion.decode(undefined))).toEqual(msg.missing([''], []));
-            expect(reportAll(rootUnion.decode(undefined))).toEqual([msg.missing([''], [])]);
+            expect(reportOne(rootUnion.decode(undefined))).toEqual(msg.missing([''], []));
+            expect(report(rootUnion.decode(undefined))).toEqual([msg.missing([''], [])]);
 
-            expect(report(unionInObj.decode({}))).toEqual(msg.missing(['a'], []));
-            expect(reportAll(unionInObj.decode({}))).toEqual([msg.missing(['a'], [])]);
+            expect(reportOne(unionInObj.decode({}))).toEqual(msg.missing(['a'], []));
+            expect(report(unionInObj.decode({}))).toEqual([msg.missing(['a'], [])]);
         });
 
         it('should not narrow down if property is not assignable at all', () => {
             assertRootMismatch(primitiveUnion, null, '', []);
             assertRootMismatch(rootUnion, null, '', []);
 
-            expect(report(unionInObj.decode({ a: null }))).toEqual(
+            expect(reportOne(unionInObj.decode({ a: null }))).toEqual(
                 msg.mismatch('a', [], null, rootUnion),
             );
-            expect(reportAll(unionInObj.decode({ a: null }))).toEqual([
+            expect(report(unionInObj.decode({ a: null }))).toEqual([
                 msg.mismatch('a', [], null, rootUnion),
             ]);
         });
 
         it('should narrow down if property is partially assignable to any variant', () => {
-            expect(report(unionInObj.decode({ a: {} }))).toEqual(msg.missing(['b'], ['a']));
-            expect(reportAll(unionInObj.decode({ a: {} }))).toEqual([msg.missing(['b'], ['a'])]);
+            expect(reportOne(unionInObj.decode({ a: {} }))).toEqual(msg.missing(['b'], ['a']));
+            expect(report(unionInObj.decode({ a: {} }))).toEqual([msg.missing(['b'], ['a'])]);
         });
 
         it('should narrow down union type to variant which has more overlap', () => {
             const union = t.union([t.type({ a: t.number }), t.type({ b: t.number, c: t.number })]);
 
-            expect(report(union.decode({ c: 42 }))).toEqual(msg.missing(['b'], []));
-            expect(reportAll(union.decode({ c: 42 }))).toEqual([msg.missing(['b'], [])]);
+            expect(reportOne(union.decode({ c: 42 }))).toEqual(msg.missing(['b'], []));
+            expect(report(union.decode({ c: 42 }))).toEqual([msg.missing(['b'], [])]);
         });
 
         it('should narrow down to variant which has more overlap even if it has more errors later', () => {
@@ -133,10 +137,10 @@ describe('io-ts-friendly-reporter', () => {
                 t.type({ b: t.type({ c: t.number, d: t.number }) }),
             ]);
 
-            expect(report(union.decode({ b: { c: null } }))).toEqual(
+            expect(reportOne(union.decode({ b: { c: null } }))).toEqual(
                 msg.mismatch('c', ['b'], null, t.number),
             );
-            expect(reportAll(union.decode({ b: { c: null } }))).toEqual([
+            expect(report(union.decode({ b: { c: null } }))).toEqual([
                 msg.mismatch('c', ['b'], null, t.number),
                 msg.missing(['d'], ['b']),
             ]);
@@ -145,16 +149,14 @@ describe('io-ts-friendly-reporter', () => {
         it('should correctly handle nested unions', () => {
             const union = t.union([t.union([t.string, t.number]), t.type({ b: t.string })]);
 
-            expect(report(union.decode('asd'))).toEqual(null);
-            expect(reportAll(union.decode('asd'))).toEqual([]);
+            expect(reportOne(union.decode('asd'))).toEqual(null);
+            expect(report(union.decode('asd'))).toEqual([]);
 
-            expect(report(union.decode({}))).toEqual(msg.missing(['b'], []));
-            expect(reportAll(union.decode({}))).toEqual([msg.missing(['b'], [])]);
+            expect(reportOne(union.decode({}))).toEqual(msg.missing(['b'], []));
+            expect(report(union.decode({}))).toEqual([msg.missing(['b'], [])]);
 
-            expect(report(union.decode({ b: 42 }))).toEqual(msg.mismatch('b', [], 42, t.string));
-            expect(reportAll(union.decode({ b: 42 }))).toEqual([
-                msg.mismatch('b', [], 42, t.string),
-            ]);
+            expect(reportOne(union.decode({ b: 42 }))).toEqual(msg.mismatch('b', [], 42, t.string));
+            expect(report(union.decode({ b: 42 }))).toEqual([msg.mismatch('b', [], 42, t.string)]);
         });
 
         it('should correctly handle nested unions II', () => {
@@ -163,17 +165,17 @@ describe('io-ts-friendly-reporter', () => {
                 t.union([t.string, t.number, t.type({ a: t.literal(1) })]),
             ]);
 
-            expect(report(union.decode({}))).toEqual(msg.missing(['a'], []));
-            expect(reportAll(union.decode({}))).toEqual([msg.missing(['a'], [])]);
+            expect(reportOne(union.decode({}))).toEqual(msg.missing(['a'], []));
+            expect(report(union.decode({}))).toEqual([msg.missing(['a'], [])]);
         });
 
         it('should correctly handle nested unions III', () => {
             const union = t.union([t.number, t.readonlyArray(t.literal(false))]);
 
-            expect(report(union.decode([true]))).toEqual(
+            expect(reportOne(union.decode([true]))).toEqual(
                 msg.mismatch('0', [], true, t.literal(false)),
             );
-            expect(reportAll(union.decode([true]))).toEqual([
+            expect(report(union.decode([true]))).toEqual([
                 msg.mismatch('0', [], true, t.literal(false)),
             ]);
         });
@@ -181,7 +183,7 @@ describe('io-ts-friendly-reporter', () => {
         it('should correctly handle nested unions IV', () => {
             const union = t.array(t.union([t.tuple([t.string, t.literal('a')]), t.literal('a')]));
 
-            expect(report(union.decode([{}, []]))).toEqual(
+            expect(reportOne(union.decode([{}, []]))).toEqual(
                 msg.mismatch(
                     '0',
                     [],
@@ -189,7 +191,7 @@ describe('io-ts-friendly-reporter', () => {
                     t.union([t.tuple([t.string, t.literal('a')]), t.literal('a')]),
                 ),
             );
-            expect(reportAll(union.decode([{}, []]))).toEqual([
+            expect(report(union.decode([{}, []]))).toEqual([
                 msg.mismatch(
                     '0',
                     [],
@@ -206,8 +208,8 @@ describe('io-ts-friendly-reporter', () => {
                 t.type({ a: t.null }),
             ]);
 
-            expect(report(union.decode({}))).toEqual(msg.missing(['a'], []));
-            expect(reportAll(union.decode({}))).toEqual([msg.missing(['a'], [])]);
+            expect(reportOne(union.decode({}))).toEqual(msg.missing(['a'], []));
+            expect(report(union.decode({}))).toEqual([msg.missing(['a'], [])]);
         });
     });
 
@@ -219,73 +221,73 @@ describe('io-ts-friendly-reporter', () => {
         ]);
 
         it('should detect missing properties', () => {
-            expect(report(intersection.decode({}))).toEqual(msg.missing(['a'], []));
-            expect(reportAll(intersection.decode({}))).toEqual([
+            expect(reportOne(intersection.decode({}))).toEqual(msg.missing(['a'], []));
+            expect(report(intersection.decode({}))).toEqual([
                 msg.missing(['a'], []),
                 msg.missing(['b'], []),
             ]);
 
-            expect(report(intersection.decode({ a: 42 }))).toEqual(msg.missing(['b'], []));
-            expect(reportAll(intersection.decode({ a: 42 }))).toEqual([msg.missing(['b'], [])]);
+            expect(reportOne(intersection.decode({ a: 42 }))).toEqual(msg.missing(['b'], []));
+            expect(report(intersection.decode({ a: 42 }))).toEqual([msg.missing(['b'], [])]);
 
-            expect(report(intersection.decode({ a: 42, b: 42, c: {} }))).toEqual(
+            expect(reportOne(intersection.decode({ a: 42, b: 42, c: {} }))).toEqual(
                 msg.mismatch('b', [], 42, t.string),
             );
-            expect(reportAll(intersection.decode({ a: 42, b: 42, c: {} }))).toEqual([
+            expect(report(intersection.decode({ a: 42, b: 42, c: {} }))).toEqual([
                 msg.mismatch('b', [], 42, t.string),
                 msg.missing(['d'], ['c']),
             ]);
 
-            expect(report(intersection.decode({ a: 42, b: 'asd', c: {} }))).toEqual(
+            expect(reportOne(intersection.decode({ a: 42, b: 'asd', c: {} }))).toEqual(
                 msg.missing(['d'], ['c']),
             );
-            expect(reportAll(intersection.decode({ a: 42, b: 'asd', c: {} }))).toEqual([
+            expect(report(intersection.decode({ a: 42, b: 'asd', c: {} }))).toEqual([
                 msg.missing(['d'], ['c']),
             ]);
         });
 
         it('should detect mismatched properties', () => {
-            expect(report(t.intersection([t.number, t.string]).decode(null))).toEqual(
+            expect(reportOne(t.intersection([t.number, t.string]).decode(null))).toEqual(
                 msg.mismatch('', [], null, t.number),
             );
-            expect(reportAll(t.intersection([t.number, t.string]).decode(null))).toEqual([
+            expect(report(t.intersection([t.number, t.string]).decode(null))).toEqual([
                 msg.mismatch('', [], null, t.number),
                 msg.mismatch('', [], null, t.string),
             ]);
 
-            expect(report(t.intersection([t.number, t.string]).decode(42))).toEqual(
+            expect(reportOne(t.intersection([t.number, t.string]).decode(42))).toEqual(
                 msg.mismatch('', [], 42, t.string),
             );
-            expect(reportAll(t.intersection([t.number, t.string]).decode(42))).toEqual([
+            expect(report(t.intersection([t.number, t.string]).decode(42))).toEqual([
                 msg.mismatch('', [], 42, t.string),
             ]);
 
-            expect(report(intersection.decode({ a: null, b: 42 }))).toEqual(
+            expect(reportOne(intersection.decode({ a: null, b: 42 }))).toEqual(
                 msg.mismatch('a', [], null, t.number),
             );
-            expect(reportAll(intersection.decode({ a: null, b: 42 }))).toEqual([
+            expect(report(intersection.decode({ a: null, b: 42 }))).toEqual([
                 msg.mismatch('a', [], null, t.number),
                 msg.mismatch('b', [], 42, t.string),
             ]);
 
-            expect(report(intersection.decode({ a: 42, b: 42 }))).toEqual(
+            expect(reportOne(intersection.decode({ a: 42, b: 42 }))).toEqual(
                 msg.mismatch('b', [], 42, t.string),
             );
-            expect(reportAll(intersection.decode({ a: 42, b: 42 }))).toEqual([
+            expect(report(intersection.decode({ a: 42, b: 42 }))).toEqual([
                 msg.mismatch('b', [], 42, t.string),
             ]);
 
-            expect(report(intersection.decode({ a: 42, b: 'asd', c: null }))).toEqual(
+            expect(reportOne(intersection.decode({ a: 42, b: 'asd', c: null }))).toEqual(
                 msg.mismatch('c', [], null, t.type({ d: t.null })),
             );
-            expect(reportAll(intersection.decode({ a: 42, b: 'asd', c: null }))).toEqual([
+            expect(report(intersection.decode({ a: 42, b: 'asd', c: null }))).toEqual([
                 msg.mismatch('c', [], null, t.type({ d: t.null })),
             ]);
 
-            expect(report(intersection.decode({ a: 42, b: 'asd', c: { d: 42 } }))).toEqual(
+            expect(reportOne(intersection.decode({ a: 42, b: 'asd', c: { d: 42 } }))).toEqual(
                 msg.mismatch('d', ['c'], 42, t.null),
             );
-            expect(reportAll(intersection.decode({ a: 42, b: 'asd', c: { d: 42 } }))).toEqual([
+            expect(report(intersection.decode({ a: 42, b: 'asd', c: { d: 42 } }))).toEqual([
                 msg.mismatch('d', ['c'], 42, t.null),
             ]);
         });
@@ -293,36 +295,36 @@ describe('io-ts-friendly-reporter', () => {
 
     describe('arrays', () => {
         it('should not narrow down to item if thing is not an array', () => {
-            expect(report(t.array(t.string).decode(undefined))).toEqual(msg.missing([''], []));
-            expect(reportAll(t.array(t.string).decode(undefined))).toEqual([msg.missing([''], [])]);
+            expect(reportOne(t.array(t.string).decode(undefined))).toEqual(msg.missing([''], []));
+            expect(report(t.array(t.string).decode(undefined))).toEqual([msg.missing([''], [])]);
 
-            expect(report(t.array(t.string).decode('asd'))).toEqual(
+            expect(reportOne(t.array(t.string).decode('asd'))).toEqual(
                 msg.mismatch('', [], 'asd', t.array(t.string)),
             );
-            expect(reportAll(t.array(t.string).decode('asd'))).toEqual([
+            expect(report(t.array(t.string).decode('asd'))).toEqual([
                 msg.mismatch('', [], 'asd', t.array(t.string)),
             ]);
         });
 
         it('should narrow down to invalid item', () => {
-            expect(report(t.array(t.string).decode(['asd', undefined]))).toEqual(
+            expect(reportOne(t.array(t.string).decode(['asd', undefined]))).toEqual(
                 msg.missing(['1'], []),
             );
-            expect(reportAll(t.array(t.string).decode(['asd', undefined]))).toEqual([
+            expect(report(t.array(t.string).decode(['asd', undefined]))).toEqual([
                 msg.missing(['1'], []),
             ]);
 
-            expect(report(t.array(t.string).decode(['asd', 42]))).toEqual(
+            expect(reportOne(t.array(t.string).decode(['asd', 42]))).toEqual(
                 msg.mismatch('1', [], 42, t.string),
             );
-            expect(reportAll(t.array(t.string).decode(['asd', 42]))).toEqual([
+            expect(report(t.array(t.string).decode(['asd', 42]))).toEqual([
                 msg.mismatch('1', [], 42, t.string),
             ]);
 
-            expect(report(t.array(t.string).decode([null, 42]))).toEqual(
+            expect(reportOne(t.array(t.string).decode([null, 42]))).toEqual(
                 msg.mismatch('0', [], null, t.string),
             );
-            expect(reportAll(t.array(t.string).decode([null, 42]))).toEqual([
+            expect(report(t.array(t.string).decode([null, 42]))).toEqual([
                 msg.mismatch('0', [], null, t.string),
                 msg.mismatch('1', [], 42, t.string),
             ]);
@@ -331,48 +333,48 @@ describe('io-ts-friendly-reporter', () => {
 
     describe('tuples', () => {
         it('should not narrow down to item if thing is not an array', () => {
-            expect(report(t.tuple([t.string, t.number]).decode(undefined))).toEqual(
+            expect(reportOne(t.tuple([t.string, t.number]).decode(undefined))).toEqual(
                 msg.missing([''], []),
             );
-            expect(reportAll(t.tuple([t.string, t.number]).decode(undefined))).toEqual([
+            expect(report(t.tuple([t.string, t.number]).decode(undefined))).toEqual([
                 msg.missing([''], []),
             ]);
 
-            expect(report(t.tuple([t.string, t.number]).decode('asd'))).toEqual(
+            expect(reportOne(t.tuple([t.string, t.number]).decode('asd'))).toEqual(
                 msg.mismatch('', [], 'asd', t.tuple([t.string, t.number])),
             );
-            expect(reportAll(t.tuple([t.string, t.number]).decode('asd'))).toEqual([
+            expect(report(t.tuple([t.string, t.number]).decode('asd'))).toEqual([
                 msg.mismatch('', [], 'asd', t.tuple([t.string, t.number])),
             ]);
         });
 
         it('should narrow down to invalid item', () => {
-            expect(report(t.tuple([t.string, t.number]).decode(['asd']))).toEqual(
+            expect(reportOne(t.tuple([t.string, t.number]).decode(['asd']))).toEqual(
                 msg.missing(['1'], []),
             );
-            expect(reportAll(t.tuple([t.string, t.number]).decode(['asd']))).toEqual([
+            expect(report(t.tuple([t.string, t.number]).decode(['asd']))).toEqual([
                 msg.missing(['1'], []),
             ]);
 
-            expect(report(t.tuple([t.string, t.number]).decode([42]))).toEqual(
+            expect(reportOne(t.tuple([t.string, t.number]).decode([42]))).toEqual(
                 msg.mismatch('0', [], 42, t.string),
             );
-            expect(reportAll(t.tuple([t.string, t.number]).decode([42]))).toEqual([
+            expect(report(t.tuple([t.string, t.number]).decode([42]))).toEqual([
                 msg.mismatch('0', [], 42, t.string),
                 msg.missing(['1'], []),
             ]);
 
-            expect(report(t.tuple([t.string, t.number]).decode(['asd', undefined]))).toEqual(
+            expect(reportOne(t.tuple([t.string, t.number]).decode(['asd', undefined]))).toEqual(
                 msg.missing(['1'], []),
             );
-            expect(reportAll(t.tuple([t.string, t.number]).decode(['asd', undefined]))).toEqual([
+            expect(report(t.tuple([t.string, t.number]).decode(['asd', undefined]))).toEqual([
                 msg.missing(['1'], []),
             ]);
 
-            expect(report(t.tuple([t.string, t.number]).decode(['asd', {}]))).toEqual(
+            expect(reportOne(t.tuple([t.string, t.number]).decode(['asd', {}]))).toEqual(
                 msg.mismatch('1', [], {}, t.number),
             );
-            expect(reportAll(t.tuple([t.string, t.number]).decode(['asd', {}]))).toEqual([
+            expect(report(t.tuple([t.string, t.number]).decode(['asd', {}]))).toEqual([
                 msg.mismatch('1', [], {}, t.number),
             ]);
         });
@@ -388,32 +390,32 @@ describe('io-ts-friendly-reporter', () => {
         );
 
         it('should report missing field on arbitrary level', () => {
-            expect(report(codec.decode({}))).toEqual(msg.missing(['bar'], []));
-            expect(reportAll(codec.decode({}))).toEqual([msg.missing(['bar'], [])]);
+            expect(reportOne(codec.decode({}))).toEqual(msg.missing(['bar'], []));
+            expect(report(codec.decode({}))).toEqual([msg.missing(['bar'], [])]);
 
-            expect(report(codec.decode({ bar: { bar: {} } }))).toEqual(
+            expect(reportOne(codec.decode({ bar: { bar: {} } }))).toEqual(
                 msg.missing(['bar'], ['bar', 'bar']),
             );
-            expect(reportAll(codec.decode({ bar: { bar: {} } }))).toEqual([
+            expect(report(codec.decode({ bar: { bar: {} } }))).toEqual([
                 msg.missing(['bar'], ['bar', 'bar']),
             ]);
         });
 
         it('should report mismatched field on arbitrary level', () => {
-            expect(report(codec.decode(null))).toEqual(msg.mismatch('', [], null, codec));
-            expect(reportAll(codec.decode(null))).toEqual([msg.mismatch('', [], null, codec)]);
+            expect(reportOne(codec.decode(null))).toEqual(msg.mismatch('', [], null, codec));
+            expect(report(codec.decode(null))).toEqual([msg.mismatch('', [], null, codec)]);
 
-            expect(report(codec.decode({ bar: 42 }))).toEqual(
+            expect(reportOne(codec.decode({ bar: 42 }))).toEqual(
                 msg.mismatch('bar', [], 42, t.union([codec, t.null])),
             );
-            expect(reportAll(codec.decode({ bar: 42 }))).toEqual([
+            expect(report(codec.decode({ bar: 42 }))).toEqual([
                 msg.mismatch('bar', [], 42, t.union([codec, t.null])),
             ]);
 
-            expect(report(codec.decode({ bar: { bar: [42] } }))).toEqual(
+            expect(reportOne(codec.decode({ bar: { bar: [42] } }))).toEqual(
                 msg.mismatch('bar', ['bar'], [42], t.union([codec, t.null])),
             );
-            expect(reportAll(codec.decode({ bar: { bar: [42] } }))).toEqual([
+            expect(report(codec.decode({ bar: { bar: [42] } }))).toEqual([
                 msg.mismatch('bar', ['bar'], [42], t.union([codec, t.null])),
             ]);
         });
@@ -454,15 +456,15 @@ describe('io-ts-friendly-reporter', () => {
         it('should report missing root level property', () => {
             const data = { b: [], c: { c1: 'asd' }, d: [] };
 
-            expect(report(codec.decode(data))).toEqual(msg.missing(['a'], []));
-            expect(reportAll(codec.decode(data))).toEqual([msg.missing(['a'], [])]);
+            expect(reportOne(codec.decode(data))).toEqual(msg.missing(['a'], []));
+            expect(report(codec.decode(data))).toEqual([msg.missing(['a'], [])]);
         });
 
         it('should report missing root level property despite error in next intersection item', () => {
             const data = { b: [], c: { c1: 'asd' }, d: [], e: 42 };
 
-            expect(report(codec.decode(data))).toEqual(msg.missing(['a'], []));
-            expect(reportAll(codec.decode(data))).toEqual([
+            expect(reportOne(codec.decode(data))).toEqual(msg.missing(['a'], []));
+            expect(report(codec.decode(data))).toEqual([
                 msg.missing(['a'], []),
                 msg.mismatch('e', [], 42, t.record(t.string, t.union([t.string, t.number]))),
             ]);
@@ -471,10 +473,10 @@ describe('io-ts-friendly-reporter', () => {
         it('should report invalid property', () => {
             const data = { a: 'asd', b: ['asd'], c: { c1: 'asd' }, d: [] };
 
-            expect(report(codec.decode(data))).toEqual(
+            expect(reportOne(codec.decode(data))).toEqual(
                 msg.mismatch('0', ['b'], 'asd', t.keyof({ k1: null, k2: null })),
             );
-            expect(reportAll(codec.decode(data))).toEqual([
+            expect(report(codec.decode(data))).toEqual([
                 msg.mismatch('0', ['b'], 'asd', t.keyof({ k1: null, k2: null })),
             ]);
         });
@@ -482,10 +484,10 @@ describe('io-ts-friendly-reporter', () => {
         it('should report invalid property in next intersection section', () => {
             const data = { a: 'asd', b: ['k1'], c: { c1: 'asd' }, d: [], e: null };
 
-            expect(report(codec.decode(data))).toEqual(
+            expect(reportOne(codec.decode(data))).toEqual(
                 msg.mismatch('e', [], null, t.record(t.string, t.union([t.string, t.number]))),
             );
-            expect(reportAll(codec.decode(data))).toEqual([
+            expect(report(codec.decode(data))).toEqual([
                 msg.mismatch('e', [], null, t.record(t.string, t.union([t.string, t.number]))),
             ]);
         });
@@ -493,10 +495,10 @@ describe('io-ts-friendly-reporter', () => {
         it('should report invalid property union variant in next intersection section', () => {
             const data = { a: 'asd', b: ['k1'], c: { c1: 'asd' }, d: [], e: { foo: true } };
 
-            expect(report(codec.decode(data))).toEqual(
+            expect(reportOne(codec.decode(data))).toEqual(
                 msg.mismatch('foo', ['e'], true, t.union([t.string, t.number])),
             );
-            expect(reportAll(codec.decode(data))).toEqual([
+            expect(report(codec.decode(data))).toEqual([
                 msg.mismatch('foo', ['e'], true, t.union([t.string, t.number])),
             ]);
         });
@@ -504,17 +506,17 @@ describe('io-ts-friendly-reporter', () => {
         it('should report missing property in nested union', () => {
             const data = { a: 'asd', b: [], c: { c1: 'asd' }, d: [{}] };
 
-            expect(report(codec.decode(data))).toEqual(msg.missing(['d1', 'd2'], ['d', '0']));
-            expect(reportAll(codec.decode(data))).toEqual([msg.missing(['d1', 'd2'], ['d', '0'])]);
+            expect(reportOne(codec.decode(data))).toEqual(msg.missing(['d1', 'd2'], ['d', '0']));
+            expect(report(codec.decode(data))).toEqual([msg.missing(['d1', 'd2'], ['d', '0'])]);
         });
 
         it('should report invlid property in nested union', () => {
             const data = { a: 'asd', b: [], c: { c1: 'asd' }, d: [{ d1: 42 }] };
 
-            expect(report(codec.decode(data))).toEqual(
+            expect(reportOne(codec.decode(data))).toEqual(
                 msg.mismatch('d1', ['d', '0'], 42, t.string),
             );
-            expect(reportAll(codec.decode(data))).toEqual([
+            expect(report(codec.decode(data))).toEqual([
                 msg.mismatch('d1', ['d', '0'], 42, t.string),
                 msg.missing(['d2'], ['d', '0']),
             ]);
@@ -523,15 +525,15 @@ describe('io-ts-friendly-reporter', () => {
         it('should report report from variant which has more overlap', () => {
             const data = { a: 'asd', b: [], c: { c1: 'asd' }, d: [{ d3: 'asd' }] };
 
-            expect(report(codec.decode(data))).toEqual(msg.missing(['d1', 'd4'], ['d', '0']));
-            expect(reportAll(codec.decode(data))).toEqual([msg.missing(['d1', 'd4'], ['d', '0'])]);
+            expect(reportOne(codec.decode(data))).toEqual(msg.missing(['d1', 'd4'], ['d', '0']));
+            expect(report(codec.decode(data))).toEqual([msg.missing(['d1', 'd4'], ['d', '0'])]);
         });
 
         it('should report report from variant which has more overlap II', () => {
             const data = { a: 'asd', b: [], c: { c1: 'asd' }, d: [{ d1: 'asd', d3: 'asd' }] };
 
-            expect(report(codec.decode(data))).toEqual(msg.missing(['d4'], ['d', '0']));
-            expect(reportAll(codec.decode(data))).toEqual([msg.missing(['d4'], ['d', '0'])]);
+            expect(reportOne(codec.decode(data))).toEqual(msg.missing(['d4'], ['d', '0']));
+            expect(report(codec.decode(data))).toEqual([msg.missing(['d4'], ['d', '0'])]);
         });
 
         it('should report deep variant missing props', () => {
@@ -550,10 +552,10 @@ describe('io-ts-friendly-reporter', () => {
                 ],
             };
 
-            expect(report(codec.decode(data))).toEqual(
+            expect(reportOne(codec.decode(data))).toEqual(
                 msg.missing(['d211'], ['d', '0', 'd2', 'd22', '1']),
             );
-            expect(reportAll(codec.decode(data))).toEqual([
+            expect(report(codec.decode(data))).toEqual([
                 msg.missing(['d211'], ['d', '0', 'd2', 'd22', '1']),
             ]);
         });
@@ -574,10 +576,10 @@ describe('io-ts-friendly-reporter', () => {
                 ],
             };
 
-            expect(report(codec.decode(data))).toEqual(
+            expect(reportOne(codec.decode(data))).toEqual(
                 msg.mismatch('d211', ['d', '0', 'd2', 'd22', '1'], null, t.number),
             );
-            expect(reportAll(codec.decode(data))).toEqual([
+            expect(report(codec.decode(data))).toEqual([
                 msg.mismatch('d211', ['d', '0', 'd2', 'd22', '1'], null, t.number),
             ]);
         });
@@ -590,6 +592,6 @@ function assertRootMismatch(
     key: string,
     path: string[],
 ) {
-    expect(report(type.decode(actual))).toEqual(msg.mismatch(key, path, actual, type));
-    expect(reportAll(type.decode(actual))).toEqual([msg.mismatch(key, path, actual, type)]);
+    expect(reportOne(type.decode(actual))).toEqual(msg.mismatch(key, path, actual, type));
+    expect(report(type.decode(actual))).toEqual([msg.mismatch(key, path, actual, type)]);
 }

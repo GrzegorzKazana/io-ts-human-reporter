@@ -12,9 +12,10 @@ import {
     sortBy,
     dedupe,
     initTail,
+    DeepPartial,
 } from './utils';
 import { Codec, AnyDecoder } from './codecs';
-import { Messages, messages as defaultMessages } from './messages';
+import { Messages } from './messages';
 
 export type ErrorFirstContextInfo = {
     key: string;
@@ -27,30 +28,37 @@ export type ErrorFirstContextInfo = {
 export type ErrorsExt = t.ValidationError & ErrorFirstContextInfo;
 export type InputError = t.ValidationError & Partial<ErrorFirstContextInfo>;
 export type Options = { path: string[]; parentType: AnyDecoder | null; messages: Messages };
-export { Messages, defaultMessages };
+export { Messages };
+
+export const defaultMessages = Messages.default();
 
 const Options = {
     default: (): Options => ({ path: [], parentType: null, messages: defaultMessages }),
+    withDefault: (opts: DeepPartial<Options>): Options => ({
+        ...Options.default(),
+        ...opts,
+        messages: Messages.withDefault(opts.messages),
+    }),
 };
 
 /**
  * Returns description of first validation error or null
  */
-export function report(
+export function reportOne(
     validation: t.Validation<unknown>,
-    opts: Partial<Options> = {},
+    opts: DeepPartial<Options> = {},
 ): string | null {
-    return isLeft(validation) ? explain(validation.left, { ...Options.default(), ...opts }) : null;
+    return isLeft(validation) ? explain(validation.left, Options.withDefault(opts)) : null;
 }
 
 /**
  * Returns descriptions of all validation errors found
  */
-export function reportAll(
+export function report(
     validation: t.Validation<unknown>,
-    opts: Partial<Options> = {},
+    opts: DeepPartial<Options> = {},
 ): string[] {
-    return isLeft(validation) ? explainAll(validation.left, { ...Options.default(), ...opts }) : [];
+    return isLeft(validation) ? explainAll(validation.left, Options.withDefault(opts)) : [];
 }
 
 function explain(errors: Array<InputError>, opts: Options): string | null {
@@ -190,10 +198,7 @@ function attachExtraInfoToError({ context, ...rest }: InputError): ErrorsExt | n
         type: head.type,
         actual: head.actual,
         isExhausted: tail.every(({ actual }) => actual === head.actual),
-        // find first change of `actual`
-        levelsUntilExhaustion: context.findIndex(
-            ({ actual }, idx) => context[idx + 1] && actual !== context[idx + 1].actual,
-        ),
+        levelsUntilExhaustion: context.findIndex(findLevelsUntilExhaustion),
         wasParentExhausted: !!rest.isExhausted,
     };
 }
@@ -204,6 +209,18 @@ function extendPath(branchKey: string, { path, parentType }: Options): string[] 
         !Codec.is.union(parentType) && !Codec.is.intersection(parentType) && !isRoot;
 
     return shouldExtendPath ? [...path, branchKey] : path;
+}
+
+/**
+ * find first change of `actual`
+ */
+function findLevelsUntilExhaustion(
+    { actual }: t.ContextEntry,
+    idx: number,
+    context: t.Context,
+): boolean {
+    const next = context[idx + 1];
+    return !!next && actual !== next.actual;
 }
 
 function maxLevelsUntilExhaustion(errors: Array<ErrorsExt>): number {

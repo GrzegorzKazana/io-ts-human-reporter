@@ -1,6 +1,12 @@
 import { Refinement } from 'fp-ts/Refinement';
 import { Predicate } from 'fp-ts/Predicate';
 
+export type DeepPartial<T> = T extends Record<keyof any, unknown>
+    ? {
+          [P in keyof T]?: DeepPartial<T[P]>;
+      }
+    : T;
+
 export function head<T>(arr: ReadonlyArray<T>): T | null {
     return arr[0] || null;
 }
@@ -12,9 +18,10 @@ export function initTail<T>(arr: ReadonlyArray<T>): [T[], T | null] {
 export function groupBy<T, K extends string>(arr: T[], by: (a: T) => K): Record<K, T[]> {
     return arr.reduce((acc, item) => {
         const key = by(item);
-        if (!acc[key]) acc[key] = [];
+        const group = acc[key] || [];
 
-        acc[key].push(item);
+        group.push(item);
+        acc[key] = group;
 
         return acc;
     }, {} as Record<string, T[]>);
@@ -129,15 +136,17 @@ enum Order {
  */
 export function multiCriterionCompare(arrA: number[], arrB: number[]): Order {
     return (
-        findMap(arrA, (a, idx) =>
-            arrB[idx] === undefined
+        findMap(arrA, (a, idx) => {
+            const corresponding = arrB[idx];
+
+            return corresponding === undefined
                 ? Order.EQ
-                : a > arrB[idx]
+                : a > corresponding
                 ? Order.GT
-                : a < arrB[idx]
+                : a < corresponding
                 ? Order.LT
-                : Order.EQ,
-        ) || Order.EQ
+                : Order.EQ;
+        }) || Order.EQ
     );
 }
 
