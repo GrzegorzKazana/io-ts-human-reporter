@@ -1,21 +1,12 @@
 import * as t from 'io-ts';
 import { isLeft } from 'fp-ts/Either';
+import { pipe } from 'fp-ts/function';
+import { NonEmptyArray, groupBy } from 'fp-ts/NonEmptyArray';
 
-import {
-    head,
-    groupBy,
-    multiMaxByAll,
-    intersection,
-    filterMap,
-    isNotFalsy,
-    isNotNullable,
-    sortBy,
-    dedupe,
-    initTail,
-    DeepPartial,
-} from './utils';
 import { Codec, AnyDecoder } from './codecs';
 import { Messages } from './messages';
+import { selectBestUnionVariant } from './union';
+import { DeepPartial, head, initTail, isNotNullable, dedupe } from './utils';
 
 export type ErrorFirstContextInfo = {
     key: string;
@@ -63,7 +54,10 @@ export function report(
 
 function explain(errors: Array<InputError>, opts: Options): string | null {
     const errorsOnLevelsBelow = errors.map(attachExtraInfoToError).filter(isNotNullable);
-    const errorsByPath = groupBy(errorsOnLevelsBelow, ({ key }) => key);
+    const errorsByPath = pipe(
+        errorsOnLevelsBelow,
+        groupBy(({ key }) => key),
+    );
 
     const errorToReport =
         head(detectTypeMismatches(errorsByPath, opts)) ||
@@ -89,7 +83,10 @@ function explain(errors: Array<InputError>, opts: Options): string | null {
 
 function explainAll(errors: Array<InputError>, opts: Options): string[] {
     const errorsOnLevelsBelow = errors.map(attachExtraInfoToError).filter(isNotNullable);
-    const errorsByPath = groupBy(errorsOnLevelsBelow, ({ key }) => key);
+    const errorsByPath = pipe(
+        errorsOnLevelsBelow,
+        groupBy(({ key }) => key),
+    );
 
     const errorsToReport = dedupe([
         ...detectTypeMismatches(errorsByPath, opts),
@@ -120,9 +117,8 @@ function detectTypeMismatches(
     return Object.values(currentErrorContextsRecord).flatMap(currentErrorContexts => {
         const allExhausted = currentErrorContexts.every(({ isExhausted }) => isExhausted);
 
-        return filterMap(
-            currentErrorContexts,
-            ({ key, type, actual, message, isExhausted }) => {
+        return currentErrorContexts
+            .map(({ key, type, actual, message, isExhausted }) => {
                 // property missing/undefined
                 if (actual === undefined) return null;
                 // if parent type is union, we do not want to report the error yet
@@ -151,9 +147,8 @@ function detectTypeMismatches(
 
                 // cannot be narrowed down - report error now
                 return error;
-            },
-            isNotFalsy,
-        );
+            })
+            .filter(isNotNullable);
     });
 }
 
@@ -161,27 +156,20 @@ function detectMissingProperties(
     currentErrorContexts: Array<ErrorsExt>,
     { path, messages }: Options,
 ): string[] {
-    const missingFields = filterMap(
-        currentErrorContexts,
-        getMissingPropertyFromErrorContext,
-        isNotNullable,
-    );
+    const missingFields = currentErrorContexts
+        .map(({ key, actual, wasParentExhausted }) => {
+            if (actual !== undefined) return null;
+
+            // we only report as long as the missing key was not already reported
+            if (wasParentExhausted) return null;
+
+            return key;
+        })
+        .filter(isNotNullable);
+
     const uniqMissingFields = dedupe(missingFields);
 
     return uniqMissingFields.length ? [messages.missing(uniqMissingFields, path)] : [];
-}
-
-function getMissingPropertyFromErrorContext({
-    key,
-    actual,
-    wasParentExhausted,
-}: ErrorsExt): string | null {
-    if (actual !== undefined) return null;
-
-    // we only report as long as the missing key was not already reported
-    if (wasParentExhausted) return null;
-
-    return key;
 }
 
 /**
@@ -189,18 +177,19 @@ function getMissingPropertyFromErrorContext({
  */
 function attachExtraInfoToError({ context, ...rest }: InputError): ErrorsExt | null {
     const [head, ...tail] = context;
-    if (!head) return null;
 
-    return {
-        ...rest,
-        context: tail,
-        key: head.key,
-        type: head.type,
-        actual: head.actual,
-        isExhausted: tail.every(({ actual }) => actual === head.actual),
-        levelsUntilExhaustion: context.findIndex(findLevelsUntilExhaustion),
-        wasParentExhausted: !!rest.isExhausted,
-    };
+    return head
+        ? {
+              ...rest,
+              context: tail,
+              key: head.key,
+              type: head.type,
+              actual: head.actual,
+              isExhausted: tail.every(({ actual }) => actual === head.actual),
+              levelsUntilExhaustion: context.findIndex(findLevelsUntilExhaustion),
+              wasParentExhausted: !!rest.isExhausted,
+          }
+        : null;
 }
 
 function extendPath(branchKey: string, { path, parentType }: Options): string[] {
@@ -223,10 +212,6 @@ function findLevelsUntilExhaustion(
     return !!next && actual !== next.actual;
 }
 
-function maxLevelsUntilExhaustion(errors: Array<ErrorsExt>): number {
-    return Math.max(...errors.map(({ levelsUntilExhaustion }) => levelsUntilExhaustion));
-}
-
 /**
  * Returns array of errors which happend under specific sub branch.
  * In case of union types, tries to guess the most plausible variant
@@ -234,71 +219,9 @@ function maxLevelsUntilExhaustion(errors: Array<ErrorsExt>): number {
  */
 function filterBranches(
     parentType: AnyDecoder | null,
-    branchRecord: Record<string, Array<ErrorsExt>>,
+    branchRecord: Record<string, NonEmptyArray<ErrorsExt>>,
 ): Array<[string, Array<ErrorsExt>]> {
-    const branches = sortBy(Object.entries(branchRecord), ([_, errorsInBranch]) =>
-        maxLevelsUntilExhaustion(errorsInBranch),
-    );
+    const branches = Object.entries(branchRecord);
 
     return Codec.is.union(parentType) ? selectBestUnionVariant(branches) : branches;
-}
-
-function selectBestUnionVariant(
-    branches: Array<[string, Array<ErrorsExt>]>,
-): Array<[string, Array<ErrorsExt>]> {
-    return multiMaxByAll(branches, ([_, errorsInBranch]) => {
-        const scores = errorsInBranch.map(
-            ({ type, actual }) =>
-                scoreObjectSimilarity(type, actual) ??
-                scoreArraySimilarity(type, actual) ??
-                scoreTupleSimilarity(type, actual) ??
-                -1,
-        );
-
-        return [
-            Math.max(...scores),
-            // in case any above scoring method fails,
-            // pick the variant which can be narrowed down the most
-            maxLevelsUntilExhaustion(errorsInBranch),
-        ];
-    }).slice(0, 1);
-}
-
-function scoreObjectSimilarity(type: AnyDecoder, actual: unknown): number | null {
-    const props = Codec.getProps(type);
-
-    if (!props) return null;
-    if (!t.UnknownRecord.is(actual)) return null;
-
-    const actualKeys = Object.keys(actual);
-    const propsKeys = Object.keys(props);
-    const matchedKeys = intersection(actualKeys, propsKeys);
-    const missingKeys = propsKeys.length - matchedKeys.length;
-
-    return matchedKeys.length
-        ? // `1+` so that object with at least one matched property is always preferable
-          // than object without any matches, regardless of the missingKeys penalty `missingKeys / (missingKeys + 1)`
-          1 + matchedKeys.length - missingKeys / (missingKeys + 1)
-        : // in case of empty objects, return value from
-          // range (0, 0.5> so that types with more properties are penalised
-          // `+1` in `1 / (propsKeys.length + 1)` makes sure that `matchedKeys.length === 1` is less desired than than 0/1 keys
-          1 / (propsKeys.length + 1);
-}
-
-function scoreArraySimilarity(type: AnyDecoder, actual: unknown): number | null {
-    const itemType = Codec.getArrayItemType(type);
-
-    if (!itemType) return null;
-    if (!t.UnknownArray.is(actual)) return null;
-
-    return actual.filter(itemType.is).length;
-}
-
-function scoreTupleSimilarity(type: AnyDecoder, actual: unknown): number | null {
-    const itemTypes = Codec.getTupleTypes(type);
-
-    if (!itemTypes) return null;
-    if (!t.UnknownArray.is(actual)) return null;
-
-    return Math.max(0, actual.length - itemTypes.length);
 }

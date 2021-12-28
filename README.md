@@ -16,6 +16,12 @@ that you could even show them to anyone having basic idea about json.
 
 ## usage/examples
 
+```bash
+npm i io-ts-human-reporter
+# fp-ts and io-ts are package peerDependencies
+# so make sure you have these also installed
+```
+
 ```ts
 import * as t from 'io-ts';
 import { report, reportOne } from 'io-ts-humman-reporter';

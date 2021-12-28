@@ -1,6 +1,6 @@
 import * as t from 'io-ts';
 
-import { hasKey, isNotNullable } from './utils';
+import { isNotNullable } from './utils';
 
 export type AnyDecoder = t.Decoder<any, any>;
 
@@ -11,8 +11,7 @@ export const Codec = {
         intersection: (c: unknown): c is t.IntersectionType<t.UnknownC[]> =>
             c instanceof t.IntersectionType,
 
-        tagged: (codec: AnyDecoder): codec is TaggedCodec =>
-            hasKey(codec, '_tag') && t.string.is(codec._tag),
+        tagged: (codec: AnyDecoder): codec is TaggedCodec => t.type({ _tag: t.string }).is(codec),
     },
     /**
      * Adapted from https://github.com/gcanti/io-ts/blob/87f6b860001eb4b487429b0547cfa9a4efca33b4/src/index.ts#L515

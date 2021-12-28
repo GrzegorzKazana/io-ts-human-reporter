@@ -1,9 +1,10 @@
 import * as fc from 'fast-check';
 import * as t from 'io-ts';
 import { isRight } from 'fp-ts/Either';
+import { isEmpty } from 'fp-ts/Record';
+import { not } from 'fp-ts/Predicate';
 
 import { report, reportOne } from '../index';
-import { isNotEmpty } from '../utils';
 
 /**
  * Narrows down generated strings used as literals or object keys
@@ -33,7 +34,7 @@ const jsonCodecArbitrary = fc.letrec(tie => {
             {
                 arbitrary: fc
                     .dictionary(stringSubsetArbitrary, fc.constant(null))
-                    .filter(isNotEmpty)
+                    .filter(not(isEmpty))
                     .map(t.keyof),
                 weight: 1,
             },
