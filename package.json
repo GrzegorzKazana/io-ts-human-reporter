@@ -43,7 +43,7 @@
     },
     "dependencies": {},
     "peerDependencies": {
-        "fp-ts": "2.x",
-        "io-ts": "2.x"
+        "fp-ts": "^2.0.0",
+        "io-ts": "^2.0.0"
     }
 }
